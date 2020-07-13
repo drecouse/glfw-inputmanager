@@ -1,7 +1,7 @@
-#include "input_manager.hpp"
+#include "input_manager.h"
 #include <GLFW/glfw3.h>
 
-namespace sgui {
+namespace glfwim {
     void InputManager::initialize(GLFWwindow* window) {
         keyStates.resize(GLFW_KEY_LAST, 0);
         this->window = window;
@@ -22,15 +22,15 @@ namespace sgui {
             auto tempKeyHandlers = backupContainer(inputManager.keyHandlers);
             auto tempUtf8KeyHandlers = backupContainer(inputManager.utf8KeyHandlers);
 
-            for (auto& handler : tempKeyHandlers) {
-                handler(scancode, Modifier{ mods }, Action{ action });
+            for (auto& h : tempKeyHandlers) {
+                if (h.enabled) h.handler(scancode, Modifier{ mods }, Action{ action });
             }
 
             if (!tempUtf8KeyHandlers.empty()) {
                 const char* utf8key = glfwGetKeyName(key, scancode);
                 if (utf8key) {
-                    for (auto& handler : tempUtf8KeyHandlers) {
-                        handler(utf8key, Modifier{ mods }, Action{ action });
+                    for (auto& h : tempUtf8KeyHandlers) {
+                        if (h.enabled) h.handler(utf8key, Modifier{ mods }, Action{ action });
                     }
                 }
             }
@@ -46,8 +46,8 @@ namespace sgui {
 
             auto tempHandlers = backupContainer(inputManager.mouseButtonHandlers);
             
-            for (auto& handler : tempHandlers) {
-                handler(MouseButton{ button }, Modifier{ mods }, Action{ action });
+            for (auto& h : tempHandlers) {
+                if (h.enabled) h.handler(MouseButton{ button }, Modifier{ mods }, Action{ action });
             }
 
             restoreContainer(tempHandlers, inputManager.mouseButtonHandlers);
@@ -60,8 +60,8 @@ namespace sgui {
 
             auto tempHandlers = backupContainer(inputManager.mouseScrollHandlers);
 
-            for (auto& handler : tempHandlers) {
-                handler(x, y);
+            for (auto& h : tempHandlers) {
+                if (h.enabled) h.handler(x, y);
             }
 
             restoreContainer(tempHandlers, inputManager.mouseScrollHandlers);
@@ -75,8 +75,8 @@ namespace sgui {
 
             auto tempHandlers = backupContainer(inputManager.cursorMovementHandlers);
 
-            for (auto& handler : tempHandlers) {
-                handler(movement);
+            for (auto& h : tempHandlers) {
+                if (h.enabled) h.handler(movement);
             }
 
             restoreContainer(tempHandlers, inputManager.cursorMovementHandlers);
@@ -89,8 +89,8 @@ namespace sgui {
 
             auto tempHandlers = backupContainer(inputManager.cursorPositionHandlers);
 
-            for (auto& handler : tempHandlers) {
-                handler(x, y);
+            for (auto& h : tempHandlers) {
+                if (h.enabled) h.handler(x, y);
             }
 
             restoreContainer(tempHandlers, inputManager.cursorPositionHandlers);
@@ -101,8 +101,8 @@ namespace sgui {
 
             auto tempHandlers = backupContainer(inputManager.windowResizeHandlers);
 
-            for (auto& handler : tempHandlers) {
-                handler(x, y);
+            for (auto& h : tempHandlers) {
+                if (h.enabled) h.handler(x, y);
             }
 
             restoreContainer(tempHandlers, inputManager.windowResizeHandlers);
@@ -117,64 +117,74 @@ namespace sgui {
         double x, y;
         glfwGetCursorPos(window, &x, &y);
         for (auto& it : tempHandlers) {
-            if (it.startTime < 0) {
-                it.startTime = glfwGetTime() * 1000.0;
-                it.x = x;
-                it.y = y;
+            if (!it.enabled) continue;
+
+            if (it.handler.startTime < 0) {
+                it.handler.startTime = glfwGetTime() * 1000.0;
+                it.handler.x = x;
+                it.handler.y = y;
                 continue;
             }
 
-            double dx = x - it.x, dy = y - it.y;
+            double dx = x - it.handler.x, dy = y - it.handler.y;
             double dv2 = dx * dx + dy * dy;
-            if (dv2 <= it.threshold2) {
-                double elapsedTime = glfwGetTime() * 1000.0 - it.startTime;
-                if (elapsedTime >= it.timeToTrigger) it.handler(it.x, it.y);
+            if (dv2 <= it.handler.threshold2) {
+                double elapsedTime = glfwGetTime() * 1000.0 - it.handler.startTime;
+                if (elapsedTime >= it.handler.timeToTrigger) it.handler.handler(it.handler.x, it.handler.y);
             } else {
-                it.startTime = glfwGetTime() * 1000.0;
-                it.x = x;
-                it.y = y;
+                it.handler.startTime = glfwGetTime() * 1000.0;
+                it.handler.x = x;
+                it.handler.y = y;
             }
         }
 
         restoreContainer(tempHandlers, cursorHoldHandlers);
     }
 
-    void InputManager::registerKeyHandler(std::function<void(int, Modifier, Action)> handler) {
-        keyHandlers.push_back(std::move(handler));
+    InputManager::CallbackHandler InputManager::registerKeyHandler(std::function<void(int, Modifier, Action)> handler) {
+        keyHandlers.emplace_back(std::move(handler));
+        return CallbackHandler{this, CallbackType::Key, keyHandlers.size() - 1};
     }
 
-    void InputManager::registerUtf8KeyHandler(std::function<void(const char*, Modifier, Action)> handler) {
-        utf8KeyHandlers.push_back(std::move(handler));
+    InputManager::CallbackHandler InputManager::registerUtf8KeyHandler(std::function<void(const char*, Modifier, Action)> handler) {
+        utf8KeyHandlers.emplace_back(std::move(handler));
+        return CallbackHandler{this, CallbackType::Utf8Key, utf8KeyHandlers.size() - 1};
     }
 
-    void InputManager::registerMouseButtonHandler(std::function<void(MouseButton, Modifier, Action)> handler) {
-        mouseButtonHandlers.push_back(std::move(handler));
+    InputManager::CallbackHandler InputManager::registerMouseButtonHandler(std::function<void(MouseButton, Modifier, Action)> handler) {
+        mouseButtonHandlers.emplace_back(std::move(handler));
+        return CallbackHandler{this, CallbackType::MouseButton, mouseButtonHandlers.size() - 1};
     }
 
-    void InputManager::registerMouseScrollHandler(std::function<void(double, double)> handler) {
-        mouseScrollHandlers.push_back(std::move(handler));
+    InputManager::CallbackHandler InputManager::registerMouseScrollHandler(std::function<void(double, double)> handler) {
+        mouseScrollHandlers.emplace_back(std::move(handler));
+        return CallbackHandler{this, CallbackType::MouseScroll, mouseScrollHandlers.size() - 1};
     }
 
-    void InputManager::registerCursorMovementHandler(std::function<void(CursorMovement)> handler) {
-        cursorMovementHandlers.push_back(std::move(handler));
+    InputManager::CallbackHandler InputManager::registerCursorMovementHandler(std::function<void(CursorMovement)> handler) {
+        cursorMovementHandlers.emplace_back(std::move(handler));
+        return CallbackHandler{this, CallbackType::CursorMovement, cursorMovementHandlers.size() - 1};
     }
 
-    void InputManager::registerCursorPositionHandler(std::function<void(double, double)> handler) {
-        cursorPositionHandlers.push_back(std::move(handler));
+    InputManager::CallbackHandler InputManager::registerCursorPositionHandler(std::function<void(double, double)> handler) {
+        cursorPositionHandlers.emplace_back(std::move(handler));
+        return CallbackHandler{this, CallbackType::CursorPosition, cursorPositionHandlers.size() - 1};
     }
 
-    void InputManager::registerCursorHoldHandler(double triggerTimeInMs, double threshold, std::function<void(double, double)> handler) {
+    InputManager::CallbackHandler InputManager::registerCursorHoldHandler(double triggerTimeInMs, double threshold, std::function<void(double, double)> handler) {
         CursorHoldData data;
         data.handler = std::move(handler);
         data.threshold2 = threshold * threshold;
         data.timeToTrigger = triggerTimeInMs;
         data.x = data.y = 0;
         data.startTime = -1;
-        cursorHoldHandlers.push_back(std::move(data));
+        cursorHoldHandlers.emplace_back(std::move(data));
+        return CallbackHandler{this, CallbackType::CursorHold, cursorHoldHandlers.size() - 1};
     }
     
-    void InputManager::registerWindowResizeHandler(std::function<void(int, int)> handler) {
-        windowResizeHandlers.push_back(std::move(handler));
+    InputManager::CallbackHandler InputManager::registerWindowResizeHandler(std::function<void(int, int)> handler) {
+        windowResizeHandlers.emplace_back(std::move(handler));
+        return CallbackHandler{this, CallbackType::WindowResize, windowResizeHandlers.size() - 1};
     }
 
     void InputManager::setMouseMode(MouseMode mouseMode) {
@@ -188,12 +198,12 @@ namespace sgui {
 
     bool InputManager::isKeyboardCaptured()
     {
-        return theGUIManager.isKeyboardCaptured();
+        return false;
     }
-    
+
     bool InputManager::isMouseCaptured() 
     {
-        return theGUIManager.isMouseCaptured();
+        return false;
     }
 
     int InputManager::getSpaceScanCode()
@@ -204,5 +214,42 @@ namespace sgui {
     int InputManager::getEnterScanCode()
     {
         return glfwGetKeyScancode(GLFW_KEY_ENTER);
+    }
+
+    void InputManager::CallbackHandler::enable_impl(bool enable)
+    {
+#ifdef INPUT_MANAGER_USE_AS_SINGLETON
+        auto* pInputManager = &INPUT_MANAGER_SINGLETON_NAME;
+#else
+        auto* pInputManager = this->pInputManager;
+#endif
+
+        switch (type)
+        {
+        case CallbackType::Key:
+            pInputManager->keyHandlers[index].enabled = enable;
+            break;
+        case CallbackType::Utf8Key:
+            pInputManager->utf8KeyHandlers[index].enabled = enable;
+            break;
+        case CallbackType::MouseButton:
+            pInputManager->mouseButtonHandlers[index].enabled = enable;
+            break;
+        case CallbackType::MouseScroll:
+            pInputManager->mouseScrollHandlers[index].enabled = enable;
+            break;
+        case CallbackType::CursorMovement:
+            pInputManager->cursorMovementHandlers[index].enabled = enable;
+            break;
+        case CallbackType::CursorPosition:
+            pInputManager->cursorPositionHandlers[index].enabled = enable;
+            break;
+        case CallbackType::WindowResize:
+            pInputManager->windowResizeHandlers[index].enabled = enable;
+            break;
+        case CallbackType::CursorHold:
+            pInputManager->cursorHoldHandlers[index].enabled = enable;
+            break;
+        }
     }
 }

@@ -6,8 +6,7 @@
 #include <cstring>
 
 struct GLFWwindow;
-namespace sgui {
-
+namespace glfwim {
     enum class Modifier {
         None = 0, Shift = 1, Control = 2, Alt = 4, Super = 8
     };
@@ -36,6 +35,8 @@ namespace sgui {
             double threshold2, timeToTrigger, startTime;
         };
 
+#ifdef INPUT_MANAGER_USE_AS_SINGLETON
+    private:
         InputManager() = default;
 
     public:
@@ -43,123 +44,148 @@ namespace sgui {
             static InputManager instance;
             return instance;
         }
-
+#endif
+    public:
         void initialize(GLFWwindow* window);
         void elapsedTime(double dt);
+        void setMouseMode(MouseMode mouseMode);
+
+        InputManager(const InputManager&) = delete;
+        InputManager& operator=(const InputManager&) = delete;
 
     public:
-        void registerKeyHandler(std::function<void(int, Modifier, Action)> handler);
+        enum class CallbackType { Key, Utf8Key, MouseButton, MouseScroll, CursorMovement, CursorPosition, WindowResize, CursorHold };
+
+        class CallbackHandler {
+        public:
+            CallbackHandler(InputManager* inputManager, CallbackType type, size_t index) : pInputManager{inputManager}, type{type}, index{index} {}
+
+            void enable() { enable_impl(true); }
+            void disable() { enable_impl(false); }
+
+        private:
+            void enable_impl(bool enable);
+
+        private:
+#ifndef INPUT_MANAGER_USE_AS_SINGLETON
+            InputManager* pInputManager;
+#endif
+            CallbackType type;
+            size_t index;
+        };
+
+        friend class CallbackHandler;
+
+    public:
+        CallbackHandler registerKeyHandler(std::function<void(int, Modifier, Action)> handler);
 
         template <typename H>
-        void registerKeyHandler(int scancode, H handler) {
-            registerKeyHandler([h = std::move(handler), s = scancode](int scancode, Modifier modifier, Action action){
+        CallbackHandler registerKeyHandler(int scancode, H handler) {
+            return registerKeyHandler([h = std::move(handler), s = scancode](int scancode, Modifier modifier, Action action){
                 if (scancode == s) h(modifier, action);
             });
         }
 
         template <typename H>
-        void registerKeyHandler(int scancode, Modifier modifier, H handler) {
-            registerKeyHandler([h = std::move(handler), s = scancode, m = modifier](int scancode, Modifier modifier, Action action){
+        CallbackHandler registerKeyHandler(int scancode, Modifier modifier, H handler) {
+            return registerKeyHandler([h = std::move(handler), s = scancode, m = modifier](int scancode, Modifier modifier, Action action){
                 if (scancode == s && modifier == m) h(action);
             });
         }
 
         template <typename H>
-        void registerKeyHandler(int scancode, Modifier modifier, Action action, H handler) {
-            registerKeyHandler([h = std::move(handler), s = scancode, m = modifier, a = action](int scancode, Modifier modifier, Action action){
+        CallbackHandler registerKeyHandler(int scancode, Modifier modifier, Action action, H handler) {
+            return registerKeyHandler([h = std::move(handler), s = scancode, m = modifier, a = action](int scancode, Modifier modifier, Action action){
                 if (scancode == s && modifier == m && action == a) h();
             });
         }
 
-        void registerUtf8KeyHandler(std::function<void(const char*, Modifier, Action)> handler);
+        CallbackHandler registerUtf8KeyHandler(std::function<void(const char*, Modifier, Action)> handler);
 
         template <typename H>
-        void registerUtf8KeyHandler(const char* utf8code, H handler) {
+        CallbackHandler registerUtf8KeyHandler(const char* utf8code, H handler) {
             if (!strcmp(utf8code, " ")) {
-                registerKeyHandler(getSpaceScanCode(), handler);
+                return registerKeyHandler(getSpaceScanCode(), handler);
             }
             else if (!strcmp(utf8code, "\n")) {
-                registerKeyHandler(getEnterScanCode(), handler);
+                return registerKeyHandler(getEnterScanCode(), handler);
             }
             else {
-                registerUtf8KeyHandler([h = std::move(handler), u = utf8code](const char* utf8code, Modifier modifier, Action action){
+                return registerUtf8KeyHandler([h = std::move(handler), u = utf8code](const char* utf8code, Modifier modifier, Action action){
                     if (!strcmp(u, utf8code)) h(modifier, action);
                 });
             }
         }
 
         template <typename H>
-        void registerUtf8KeyHandler(const char* utf8code, Modifier modifier, H handler) {
+        CallbackHandler registerUtf8KeyHandler(const char* utf8code, Modifier modifier, H handler) {
             if (!strcmp(utf8code, " ")) {
-                registerKeyHandler(getSpaceScanCode(), modifier, handler);
+                return registerKeyHandler(getSpaceScanCode(), modifier, handler);
             }
             else if (!strcmp(utf8code, "\n")) {
-                registerKeyHandler(getEnterScanCode(), modifier, handler);
+                return registerKeyHandler(getEnterScanCode(), modifier, handler);
             }
             else {
-                registerUtf8KeyHandler([h = std::move(handler), u = utf8code, m = modifier](const char* utf8code, Modifier modifier, Action action){
+                return registerUtf8KeyHandler([h = std::move(handler), u = utf8code, m = modifier](const char* utf8code, Modifier modifier, Action action){
                     if (!strcmp(u, utf8code) && m == modifier) h(action);
                 });
             }
         }
 
         template <typename H>
-        void registerUtf8KeyHandler(const char* utf8code, Modifier modifier, Action action, H handler) {
+        CallbackHandler registerUtf8KeyHandler(const char* utf8code, Modifier modifier, Action action, H handler) {
             if (!strcmp(utf8code, " ")) {
-                registerKeyHandler(getSpaceScanCode(), modifier, action, handler);
+                return registerKeyHandler(getSpaceScanCode(), modifier, action, handler);
             }
             else if (!strcmp(utf8code, "\n")) {
-                registerKeyHandler(getEnterScanCode(), modifier, action, handler);
+                return registerKeyHandler(getEnterScanCode(), modifier, action, handler);
             }
             else {
-                registerUtf8KeyHandler([h = std::move(handler), u = utf8code, m = modifier, a = action](const char* utf8code, Modifier modifier, Action action){
+                return registerUtf8KeyHandler([h = std::move(handler), u = utf8code, m = modifier, a = action](const char* utf8code, Modifier modifier, Action action){
                     if (!strcmp(u, utf8code) && m == modifier && a == action) h();
                 });
             }
         }
 
-        void registerMouseButtonHandler(std::function<void(MouseButton, Modifier, Action)> handler);
+        CallbackHandler registerMouseButtonHandler(std::function<void(MouseButton, Modifier, Action)> handler);
 
         template <typename H>
-        void registerMouseButtonHandler(MouseButton mouseButton, H handler) {
-            registerMouseButtonHandler([h = std::move(handler), mb = mouseButton](MouseButton mouseButton, Modifier modifier, Action action){
+        CallbackHandler registerMouseButtonHandler(MouseButton mouseButton, H handler) {
+            return registerMouseButtonHandler([h = std::move(handler), mb = mouseButton](MouseButton mouseButton, Modifier modifier, Action action){
                 if (mb == mouseButton) h(modifier, action);
             });
         }
 
         template <typename H>
-        void registerMouseButtonHandler(MouseButton mouseButton, Modifier modifier, H handler) {
-            registerMouseButtonHandler([h = std::move(handler), mb = mouseButton, m = modifier](MouseButton mouseButton, Modifier modifier, Action action){
+        CallbackHandler registerMouseButtonHandler(MouseButton mouseButton, Modifier modifier, H handler) {
+            return registerMouseButtonHandler([h = std::move(handler), mb = mouseButton, m = modifier](MouseButton mouseButton, Modifier modifier, Action action){
                 if (mb == mouseButton && m == modifier) h(action);
             });
         }
 
         template <typename H>
-        void registerMouseButtonHandler(MouseButton mouseButton, Modifier modifier, Action action, H handler) {
-            registerMouseButtonHandler([h = std::move(handler), mb = mouseButton, m = modifier, a = action](MouseButton mouseButton, Modifier modifier, Action action){
+        CallbackHandler registerMouseButtonHandler(MouseButton mouseButton, Modifier modifier, Action action, H handler) {
+            return registerMouseButtonHandler([h = std::move(handler), mb = mouseButton, m = modifier, a = action](MouseButton mouseButton, Modifier modifier, Action action){
                 if (mb == mouseButton && m == modifier && a == action) h();
             });
         }
 
-        void registerMouseScrollHandler(std::function<void(double, double)> handler);
+        CallbackHandler registerMouseScrollHandler(std::function<void(double, double)> handler);
 
-        void registerCursorMovementHandler(std::function<void(CursorMovement)> handler);
+        CallbackHandler registerCursorMovementHandler(std::function<void(CursorMovement)> handler);
 
         template <typename H>
-        void registerCursorMovementHandler(CursorMovement movement, H handler) {
-            registerCursorMovementHandler([h = std::move(handler), m = movement](CursorMovement movement){
+        CallbackHandler registerCursorMovementHandler(CursorMovement movement, H handler) {
+            return registerCursorMovementHandler([h = std::move(handler), m = movement](CursorMovement movement){
                 if (m == movement) h();
             });
         }
 
-        void registerCursorPositionHandler(std::function<void(double, double)> handler);
-        
-        void registerCursorHoldHandler(double triggerTimeInMs, double threshold, std::function<void(double, double)> handler);
+        CallbackHandler registerCursorPositionHandler(std::function<void(double, double)> handler);
 
-        void registerWindowResizeHandler(std::function<void(int, int)> handler);
+        CallbackHandler registerCursorHoldHandler(double triggerTimeInMs, double threshold, std::function<void(double, double)> handler);
 
-    public:
-        void setMouseMode(MouseMode mouseMode);
+        CallbackHandler registerWindowResizeHandler(std::function<void(int, int)> handler);
 
     private:
         bool isKeyboardCaptured();
@@ -184,21 +210,31 @@ namespace sgui {
             }
         }
 
+        template <typename T>
+        struct HandlerHolder {
+            HandlerHolder(T handler) : handler{std::move(handler)} {}
+
+            T handler;
+            volatile bool enabled = true;
+        };
+
     private:
         GLFWwindow* window;
 
     private:
-        std::vector<std::function<void(int, Modifier, Action)>> keyHandlers;
-        std::vector<std::function<void(const char*, Modifier, Action)>> utf8KeyHandlers;
-        std::vector<std::function<void(MouseButton, Modifier, Action)>> mouseButtonHandlers;
-        std::vector<std::function<void(double, double)>> mouseScrollHandlers;
-        std::vector<std::function<void(CursorMovement)>> cursorMovementHandlers;
-        std::vector<std::function<void(double, double)>> cursorPositionHandlers;
-        std::vector<std::function<void(int, int)>> windowResizeHandlers;
-        std::vector<CursorHoldData> cursorHoldHandlers;
+        std::vector<HandlerHolder<std::function<void(int, Modifier, Action)>>> keyHandlers;
+        std::vector<HandlerHolder<std::function<void(const char*, Modifier, Action)>>> utf8KeyHandlers;
+        std::vector<HandlerHolder<std::function<void(MouseButton, Modifier, Action)>>> mouseButtonHandlers;
+        std::vector<HandlerHolder<std::function<void(double, double)>>> mouseScrollHandlers;
+    std::vector<HandlerHolder<std::function<void(CursorMovement)>>> cursorMovementHandlers;
+        std::vector<HandlerHolder<std::function<void(double, double)>>> cursorPositionHandlers;
+        std::vector<HandlerHolder<std::function<void(int, int)>>> windowResizeHandlers;
+        std::vector<HandlerHolder<CursorHoldData>> cursorHoldHandlers;
         std::vector<char> keyStates;
     };
 
-    inline InputManager& inputManager = InputManager::Instance();
+#ifdef INPUT_MANAGER_USE_AS_SINGLETON
+    inline InputManager& INPUT_MANAGER_SINGLETON_NAME = InputManager::Instance();
+#endif
 }
 #endif
