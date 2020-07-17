@@ -47,8 +47,12 @@ namespace glfwim {
 #endif
     public:
         void initialize(GLFWwindow* window);
-        void elapsedTime(double dt);
+        void pollEvents();
         void setMouseMode(MouseMode mouseMode);
+        void waitUntilNextEventHandling();
+        void waitUntilNextEventHandling(double timeout);
+        void pauseInputHandling();
+        void continueInputHandling();
 
         InputManager(const InputManager&) = delete;
         InputManager& operator=(const InputManager&) = delete;
@@ -188,6 +192,7 @@ namespace glfwim {
         CallbackHandler registerWindowResizeHandler(std::function<void(int, int)> handler);
 
     private:
+        void elapsedTime();
         bool isKeyboardCaptured();
         bool isMouseCaptured();
         static int getSpaceScanCode();
@@ -220,13 +225,15 @@ namespace glfwim {
 
     private:
         GLFWwindow* window;
+        volatile bool finishedInputHandling = false;
+        volatile bool paused = false;
 
     private:
         std::vector<HandlerHolder<std::function<void(int, Modifier, Action)>>> keyHandlers;
         std::vector<HandlerHolder<std::function<void(const char*, Modifier, Action)>>> utf8KeyHandlers;
         std::vector<HandlerHolder<std::function<void(MouseButton, Modifier, Action)>>> mouseButtonHandlers;
         std::vector<HandlerHolder<std::function<void(double, double)>>> mouseScrollHandlers;
-    std::vector<HandlerHolder<std::function<void(CursorMovement)>>> cursorMovementHandlers;
+        std::vector<HandlerHolder<std::function<void(CursorMovement)>>> cursorMovementHandlers;
         std::vector<HandlerHolder<std::function<void(double, double)>>> cursorPositionHandlers;
         std::vector<HandlerHolder<std::function<void(int, int)>>> windowResizeHandlers;
         std::vector<HandlerHolder<CursorHoldData>> cursorHoldHandlers;

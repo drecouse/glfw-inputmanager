@@ -45,7 +45,7 @@ namespace glfwim {
             if (inputManager.isMouseCaptured()) return;
 
             auto tempHandlers = backupContainer(inputManager.mouseButtonHandlers);
-            
+ 
             for (auto& h : tempHandlers) {
                 if (h.enabled) h.handler(MouseButton{ button }, Modifier{ mods }, Action{ action });
             }
@@ -109,7 +109,38 @@ namespace glfwim {
         });
     }
 
-    void InputManager::elapsedTime(double dt) {
+    void InputManager::pollEvents() {
+        glfwPollEvents();
+        elapsedTime();
+        finishedInputHandling = true;
+        while (paused);
+    }
+
+    void InputManager::waitUntilNextEventHandling() {
+        finishedInputHandling = false;
+        while (!finishedInputHandling);
+    }
+
+    void InputManager::waitUntilNextEventHandling(double timeout) {
+        finishedInputHandling = false;
+        double now = glfwGetTime() * 1000.0;
+        while (!finishedInputHandling) {
+            if ((glfwGetTime() * 1000.0 - now) >= timeout) {
+                break;
+            }
+        }
+    }
+
+    void InputManager::pauseInputHandling() {
+        paused = true;
+        waitUntilNextEventHandling();
+    }
+
+    void InputManager::continueInputHandling() {
+        paused = false;
+    }
+
+    void InputManager::elapsedTime() {
         if (isMouseCaptured()) return;
 
         auto tempHandlers = backupContainer(cursorHoldHandlers);
@@ -181,7 +212,7 @@ namespace glfwim {
         cursorHoldHandlers.emplace_back(std::move(data));
         return CallbackHandler{this, CallbackType::CursorHold, cursorHoldHandlers.size() - 1};
     }
-    
+
     InputManager::CallbackHandler InputManager::registerWindowResizeHandler(std::function<void(int, int)> handler) {
         windowResizeHandlers.emplace_back(std::move(handler));
         return CallbackHandler{this, CallbackType::WindowResize, windowResizeHandlers.size() - 1};
