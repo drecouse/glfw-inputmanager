@@ -35,8 +35,8 @@ namespace glfwim {
                 }
             }
 
-            restoreContainer(tempKeyHandlers, inputManager.keyHandlers);
-            restoreContainer(tempUtf8KeyHandlers, inputManager.utf8KeyHandlers);
+            restoreContainer(inputManager.keyHandlers, tempKeyHandlers);
+            restoreContainer(inputManager.utf8KeyHandlers, tempUtf8KeyHandlers);
         });
 
         glfwSetMouseButtonCallback(window, [](auto window, int button, int action, int mods) {
@@ -50,7 +50,7 @@ namespace glfwim {
                 if (h.enabled) h.handler(MouseButton{ button }, Modifier{ mods }, Action{ action });
             }
 
-            restoreContainer(tempHandlers, inputManager.mouseButtonHandlers);
+            restoreContainer(inputManager.mouseButtonHandlers, tempHandlers);
         });
 
         glfwSetScrollCallback(window, [](auto window, double x, double y) {
@@ -64,7 +64,7 @@ namespace glfwim {
                 if (h.enabled) h.handler(x, y);
             }
 
-            restoreContainer(tempHandlers, inputManager.mouseScrollHandlers);
+            restoreContainer(inputManager.mouseScrollHandlers, tempHandlers);
         });
 
         glfwSetCursorEnterCallback(window, [](auto window, int entered) {
@@ -79,7 +79,7 @@ namespace glfwim {
                 if (h.enabled) h.handler(movement);
             }
 
-            restoreContainer(tempHandlers, inputManager.cursorMovementHandlers);
+            restoreContainer(inputManager.cursorMovementHandlers, tempHandlers);
         });
 
         glfwSetCursorPosCallback(window, [](auto window, double x, double y) {
@@ -93,7 +93,7 @@ namespace glfwim {
                 if (h.enabled) h.handler(x, y);
             }
 
-            restoreContainer(tempHandlers, inputManager.cursorPositionHandlers);
+            restoreContainer(inputManager.cursorPositionHandlers, tempHandlers);
         });
 
         glfwSetFramebufferSizeCallback(window, [](auto window, int x, int y) {
@@ -105,7 +105,7 @@ namespace glfwim {
                 if (h.enabled) h.handler(x, y);
             }
 
-            restoreContainer(tempHandlers, inputManager.windowResizeHandlers);
+            restoreContainer(inputManager.windowResizeHandlers, tempHandlers);
         });
     }
 
@@ -169,7 +169,7 @@ namespace glfwim {
             }
         }
 
-        restoreContainer(tempHandlers, cursorHoldHandlers);
+        restoreContainer(cursorHoldHandlers, tempHandlers);
     }
 
     InputManager::CallbackHandler InputManager::registerKeyHandler(std::function<void(int, Modifier, Action)> handler) {
