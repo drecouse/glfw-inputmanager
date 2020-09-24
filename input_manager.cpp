@@ -247,6 +247,16 @@ namespace glfwim {
         return glfwGetKeyScancode(GLFW_KEY_ENTER);
     }
 
+    int InputManager::getRightArrowScanCode()
+    {
+        return glfwGetKeyScancode(GLFW_KEY_RIGHT);
+    }
+
+    int InputManager::getLeftArrowScanCode()
+    {
+        return glfwGetKeyScancode(GLFW_KEY_LEFT);
+    }
+
     void InputManager::CallbackHandler::enable_impl(bool enable)
     {
 #ifdef INPUT_MANAGER_USE_AS_SINGLETON

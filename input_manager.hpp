@@ -114,6 +114,12 @@ namespace glfwim {
             else if (!strcmp(utf8code, "\n")) {
                 return registerKeyHandler(getEnterScanCode(), handler);
             }
+            else if (!strcmp(utf8code, "->")) {
+                return registerKeyHandler(getRightArrowScanCode(), handler);
+            }
+            else if (!strcmp(utf8code, "<-")) {
+                return registerKeyHandler(getLeftArrowScanCode(), handler);
+            }
             else {
                 return registerUtf8KeyHandler([h = std::move(handler), u = utf8code](const char* utf8code, Modifier modifier, Action action){
                     if (!strcmp(u, utf8code)) h(modifier, action);
@@ -129,6 +135,12 @@ namespace glfwim {
             else if (!strcmp(utf8code, "\n")) {
                 return registerKeyHandler(getEnterScanCode(), modifier, handler);
             }
+            else if (!strcmp(utf8code, "->")) {
+                return registerKeyHandler(getRightArrowScanCode(), modifier, handler);
+            }
+            else if (!strcmp(utf8code, "<-")) {
+                return registerKeyHandler(getLeftArrowScanCode(), modifier, handler);
+            }
             else {
                 return registerUtf8KeyHandler([h = std::move(handler), u = utf8code, m = modifier](const char* utf8code, Modifier modifier, Action action){
                     if (!strcmp(u, utf8code) && m == modifier) h(action);
@@ -143,6 +155,12 @@ namespace glfwim {
             }
             else if (!strcmp(utf8code, "\n")) {
                 return registerKeyHandler(getEnterScanCode(), modifier, action, handler);
+            }
+            else if (!strcmp(utf8code, "->")) {
+                return registerKeyHandler(getRightArrowScanCode(), modifier, action, handler);
+            }
+            else if (!strcmp(utf8code, "<-")) {
+                return registerKeyHandler(getLeftArrowScanCode(), modifier, action, handler);
             }
             else {
                 return registerUtf8KeyHandler([h = std::move(handler), u = utf8code, m = modifier, a = action](const char* utf8code, Modifier modifier, Action action){
@@ -197,6 +215,8 @@ namespace glfwim {
         bool isMouseCaptured();
         static int getSpaceScanCode();
         static int getEnterScanCode();
+        static int getRightArrowScanCode();
+        static int getLeftArrowScanCode();
 
         template <typename Container>
         static Container backupContainer(Container& container)
