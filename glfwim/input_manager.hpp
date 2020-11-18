@@ -4,6 +4,7 @@
 #include <functional>
 #include <vector>
 #include <cstring>
+#include <string>
 
 struct GLFWwindow;
 namespace glfwim {
@@ -35,16 +36,17 @@ namespace glfwim {
             double threshold2, timeToTrigger, startTime;
         };
 
-#ifdef INPUT_MANAGER_USE_AS_SINGLETON
-    private:
-        InputManager() = default;
-
     public:
-        static InputManager& Instance() {
+        static InputManager& instance() {
             static InputManager instance;
             return instance;
         }
-#endif
+		InputManager() = default;
+		InputManager(const InputManager&) = delete;
+		InputManager(InputManager&&) = delete;
+		InputManager& operator=(const InputManager&) = delete;
+		InputManager& operator=(InputManager&&) = delete;
+		
     public:
         void initialize(GLFWwindow* window);
         void pollEvents();
@@ -54,11 +56,8 @@ namespace glfwim {
         void pauseInputHandling();
         void continueInputHandling();
 
-        InputManager(const InputManager&) = delete;
-        InputManager& operator=(const InputManager&) = delete;
-
     public:
-        enum class CallbackType { Key, Utf8Key, MouseButton, MouseScroll, CursorMovement, CursorPosition, WindowResize, CursorHold };
+        enum class CallbackType { Key, Utf8Key, MouseButton, MouseScroll, CursorMovement, CursorPosition, WindowResize, CursorHold, PathDrop };
 
         class CallbackHandler {
         public:
@@ -71,9 +70,7 @@ namespace glfwim {
             void enable_impl(bool enable);
 
         private:
-#ifndef INPUT_MANAGER_USE_AS_SINGLETON
             InputManager* pInputManager;
-#endif
             CallbackType type;
             size_t index;
         };
@@ -208,11 +205,77 @@ namespace glfwim {
         CallbackHandler registerCursorHoldHandler(double triggerTimeInMs, double threshold, std::function<void(double, double)> handler);
 
         CallbackHandler registerWindowResizeHandler(std::function<void(int, int)> handler);
+		
+		template <typename Head, typename Second, typename... Args>
+        CallbackHandler registerPathDropHandler(Head&& head, Second&& second, Args&&... args) {
+            std::vector<std::string> filters; filters.reserve(sizeof...(args) + 1);
+            return registerPathDropHandler_impl(std::move(filters), std::forward<Head>(head), std::forward<Second>(second), std::forward<Args>(args)...);
+        }
+
+        template <typename Handler>
+        CallbackHandler registerPathDropHandler(Handler&& handler) {
+            return registerPathDropHandler_impl(std::vector<std::string>{}, std::forward<Handler>(handler));
+        }
+		
+    private:
+        template <typename T, typename = void> struct helper : std::false_type {};
+        template <typename T> struct helper<T, std::void_t<decltype(std::declval<T>()(std::declval<std::string>()))>> : std::true_type {};
+
+        CallbackHandler registerPathDropHandler_impl2(std::function<void(const std::vector<std::string>&)> handler);
+
+        template <typename Handler>
+        CallbackHandler registerPathDropHandler_impl(std::vector<std::string>&& filters, Handler&& handler) {
+            if constexpr (helper<Handler>::value) {
+                return registerPathDropHandler_impl2([h = std::move(handler), f = std::move(filters)](const std::vector<std::string>& paths) {
+                    for (auto& it : paths) {
+                        std::string ext;
+                        auto found = it.find_last_of(".");
+                        if (found != std::string::npos) {
+                            ext = it.substr(found + 1);
+                        }
+                        if (f.empty()) h(it);
+                        else for (auto& fExt : f) {
+                            if (ext == fExt) {
+                                h(it);
+                                break;
+                            }
+                        }
+                    }
+                });
+            } else { // vector<string>
+                return registerPathDropHandler_impl2([h = std::move(handler), f = std::move(filters)](const std::vector<std::string>& paths) {
+                    std::vector<std::string> pps;
+                    for (auto& it : paths) {
+                        std::string ext;
+                        auto found = it.find_last_of(".");
+                        if (found != std::string::npos) {
+                            ext = it.substr(found + 1);
+                        }
+                        if (f.empty()) pps.push_back(it);
+                        else for (auto& fExt : f) {
+                            if (ext == fExt) {
+                                pps.push_back(it);
+                                break;
+                            }
+                        }
+                    }
+                    h(pps);
+                });
+            }
+        }
+
+        template <typename... Tail>
+        CallbackHandler registerPathDropHandler_impl(std::vector<std::string>&& filters, std::string&& head, Tail&&... tail) {
+            filters.push_back(std::move(head));
+            return registerPathDropHandler_impl(std::move(filters), std::forward<Tail>(tail)...);
+        }
+
+    private:
+        bool isKeyboardCaptured();
+        bool isMouseCaptured();
 
     private:
         void elapsedTime();
-        bool isKeyboardCaptured();
-        bool isMouseCaptured();
         static int getSpaceScanCode();
         static int getEnterScanCode();
         static int getRightArrowScanCode();
@@ -257,11 +320,8 @@ namespace glfwim {
         std::vector<HandlerHolder<std::function<void(double, double)>>> cursorPositionHandlers;
         std::vector<HandlerHolder<std::function<void(int, int)>>> windowResizeHandlers;
         std::vector<HandlerHolder<CursorHoldData>> cursorHoldHandlers;
+		std::vector<HandlerHolder<std::function<void(const std::vector<std::string>& paths)>>> pathDropHandlers;
         std::vector<char> keyStates;
     };
-
-#ifdef INPUT_MANAGER_USE_AS_SINGLETON
-    inline InputManager& INPUT_MANAGER_SINGLETON_NAME = InputManager::Instance();
-#endif
 }
 #endif

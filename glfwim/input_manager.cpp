@@ -7,6 +7,25 @@ namespace glfwim {
         this->window = window;
 
         glfwSetWindowUserPointer(window, this);
+		
+		glfwSetDropCallback(window, [](auto window, int count, const char** paths) {
+            auto& inputManager = *(InputManager*)glfwGetWindowUserPointer(window);
+
+            std::vector<std::string> vpaths;
+            vpaths.reserve(count);
+            for (int i = 0; i < count; ++i) {
+                vpaths.push_back(paths[i]);
+            }
+
+            auto tempHandlers = backupContainer(inputManager.pathDropHandlers);
+
+            for (auto& h : tempHandlers) {
+                if (h.enabled) 
+                    h.handler(vpaths);
+            }
+
+            restoreContainer(inputManager.pathDropHandlers, tempHandlers);
+        });
 
         glfwSetKeyCallback(window, [](auto window, int key, int scancode, int action, int mods) {
             auto& inputManager = *(InputManager*)glfwGetWindowUserPointer(window);
@@ -217,6 +236,11 @@ namespace glfwim {
         windowResizeHandlers.emplace_back(std::move(handler));
         return CallbackHandler{this, CallbackType::WindowResize, windowResizeHandlers.size() - 1};
     }
+	
+	InputManager::CallbackHandler InputManager::registerPathDropHandler_impl2(std::function<void(const std::vector<std::string>&)> handler) {
+        pathDropHandlers.emplace_back(std::move(handler));
+        return CallbackHandler{this, CallbackType::PathDrop, pathDropHandlers.size() - 1};
+    }
 
     void InputManager::setMouseMode(MouseMode mouseMode) {
         int mod;
@@ -225,16 +249,6 @@ namespace glfwim {
         case MouseMode::Enabled: mod = GLFW_CURSOR_NORMAL; break;
         }
         glfwSetInputMode(window, GLFW_CURSOR, mod);
-    }
-
-    bool InputManager::isKeyboardCaptured()
-    {
-        return false;
-    }
-
-    bool InputManager::isMouseCaptured() 
-    {
-        return false;
     }
 
     int InputManager::getSpaceScanCode()
@@ -259,12 +273,6 @@ namespace glfwim {
 
     void InputManager::CallbackHandler::enable_impl(bool enable)
     {
-#ifdef INPUT_MANAGER_USE_AS_SINGLETON
-        auto* pInputManager = &INPUT_MANAGER_SINGLETON_NAME;
-#else
-        auto* pInputManager = this->pInputManager;
-#endif
-
         switch (type)
         {
         case CallbackType::Key:
@@ -290,6 +298,9 @@ namespace glfwim {
             break;
         case CallbackType::CursorHold:
             pInputManager->cursorHoldHandlers[index].enabled = enable;
+            break;
+		case CallbackType::PathDrop:
+            pInputManager->pathDropHandlers[index].enabled = enable;
             break;
         }
     }

@@ -1,3 +1,7 @@
-#define INPUT_MANAGER_USE_AS_SINGLETON
-#define INPUT_MANAGER_SINGLETON_NAME inputManager
-#include "input_manager.hpp"
+#ifndef INPUT_MANAGER_H
+#define INPUT_MANAGER_H
+
+#include "glfwim/input_manager.hpp"
+inline auto& theInputManager = glfwim::InputManager::instance();
+
+#endif // INPUT_MANAGER_H
