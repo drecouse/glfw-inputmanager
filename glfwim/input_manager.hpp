@@ -5,8 +5,15 @@
 #include <vector>
 #include <cstring>
 #include <string>
+#include <future>
+#include <readerwriterqueue/readerwriterqueue.h>
+#include <concurrentqueue/concurrentqueue.h>
 
 struct GLFWwindow;
+struct GLFWmonitor;
+struct GLFWvidmode;
+struct GLFWgamepadstate;
+
 namespace glfwim {
     enum class Modifier {
         None = 0, Shift = 1, Control = 2, Alt = 4, Super = 8
@@ -26,6 +33,41 @@ namespace glfwim {
 
     enum class MouseMode {
         Disabled = 0, Enabled = 1
+    };
+
+    struct PerFrameMonitorData {
+        std::unique_ptr<GLFWvidmode> videoMode;
+        int posX, posY, workAreaX, workAreaY, workAreaW, workAreaH;
+        float scaleX, scaleY;
+
+        PerFrameMonitorData() = default;
+        PerFrameMonitorData& operator=(const PerFrameMonitorData& that);
+        PerFrameMonitorData(const PerFrameMonitorData& that);
+    };
+
+    struct PerFramePerViewportData {
+        int focused, hovered, iconified;
+        double cursorX, cursorY;
+        int mouseButton[5];
+        int posX, posY, width, height;
+    };
+
+    struct PerFrameGlobalInputData {
+        PerFrameGlobalInputData();
+        PerFrameGlobalInputData(const PerFrameGlobalInputData& that);
+        PerFrameGlobalInputData& operator=(const PerFrameGlobalInputData& that);
+
+        std::string clipBoardString;
+        int mouseButton[5];
+        int inputModeCursor;
+        std::vector<float> joystickAxes;
+        std::vector<unsigned char> joystickButtons;
+        std::unique_ptr<GLFWgamepadstate> gamepadState;
+        int gamepadStateErrorCode;
+        std::vector<PerFrameMonitorData> monitors;
+        int w, h, displayW, displayH;
+        std::unordered_map<GLFWwindow*, PerFramePerViewportData> viewportData;
+        double timestamp;
     };
 
     class InputManager {
@@ -50,14 +92,22 @@ namespace glfwim {
     public:
         void initialize(GLFWwindow* window);
         void pollEvents();
+        void runTasks();
+        void handleEvents();
+        void fillInputState(PerFrameGlobalInputData* data);
         void setMouseMode(MouseMode mouseMode);
-        void waitUntilNextEventHandling();
-        void waitUntilNextEventHandling(double timeout);
-        void pauseInputHandling();
-        void continueInputHandling();
+        void registerWindow(GLFWwindow* window);
+        void removeRegisteredWindow(GLFWwindow* window);
+        void registerInputManager(InputManager* inputManager);
+        void removeRegisteredInputManager(InputManager* inputManager);
+        void setCurrentKeyboardHandlerPriority(int priority);
+        void setCurrentMouseHandlerPriority(int priority);
+        void setDefaultHandlerPriority(int priority);
 
     public:
-        enum class CallbackType { Key, Utf8Key, MouseButton, MouseScroll, CursorMovement, CursorPosition, WindowResize, CursorHold, PathDrop };
+        enum class CallbackType { 
+            Key, Utf8Key, MouseButton, MouseScroll, CursorMovement, CursorPosition, WindowResize, WindowMove, CursorHold, PathDrop, MonitorStateChanged, Text, WindowFocus, WindowClose
+        };
 
         class CallbackHandler {
         public:
@@ -78,6 +128,8 @@ namespace glfwim {
         friend class CallbackHandler;
 
     public:
+        CallbackHandler registerKeyHandlerWithKey(std::function<void(int, Modifier, Action)> handler);
+
         CallbackHandler registerKeyHandler(std::function<void(int, Modifier, Action)> handler);
 
         template <typename H>
@@ -205,6 +257,7 @@ namespace glfwim {
         CallbackHandler registerCursorHoldHandler(double triggerTimeInMs, double threshold, std::function<void(double, double)> handler);
 
         CallbackHandler registerWindowResizeHandler(std::function<void(int, int)> handler);
+        CallbackHandler registerWindowMoveHandler(std::function<void(int, int)> handler);
 		
 		template <typename Head, typename Second, typename... Args>
         CallbackHandler registerPathDropHandler(Head&& head, Second&& second, Args&&... args) {
@@ -216,6 +269,11 @@ namespace glfwim {
         CallbackHandler registerPathDropHandler(Handler&& handler) {
             return registerPathDropHandler_impl(std::vector<std::string>{}, std::forward<Handler>(handler));
         }
+
+        CallbackHandler registerMonitorStateChangedHandler(std::function<void(GLFWmonitor*, int)> handler);
+        CallbackHandler registerTextCallback(std::function<void(unsigned int)> handler);
+        CallbackHandler registerWindowFocusHandler(std::function<void(bool)> handler);
+        CallbackHandler registerWindowCloseHandler(std::function<void()> handler);
 		
     private:
         template <typename T, typename = void> struct helper : std::false_type {};
@@ -270,12 +328,27 @@ namespace glfwim {
             return registerPathDropHandler_impl(std::move(filters), std::forward<Tail>(tail)...);
         }
 
+    public:
+        template <typename T>
+        std::future<void> executeOn(T task)
+        {
+            auto pt = std::packaged_task<void()>(std::move(task));
+            auto future = pt.get_future();
+            if (std::this_thread::get_id() == mainThreadId) {
+                pt();
+            } else {
+                tasks.enqueue(std::move(pt));
+            }
+            return future;
+        }
+
     private:
         bool isKeyboardCaptured();
         bool isMouseCaptured();
 
     private:
         void elapsedTime();
+        void updateInputState();
         static int getSpaceScanCode();
         static int getEnterScanCode();
         static int getRightArrowScanCode();
@@ -300,28 +373,85 @@ namespace glfwim {
 
         template <typename T>
         struct HandlerHolder {
-            HandlerHolder(T handler) : handler{std::move(handler)} {}
-
+            HandlerHolder(T handler, int priority) 
+                : handler{std::move(handler)}
+                , priority{ priority }
+            {}
+            HandlerHolder(HandlerHolder&& that) {
+                handler = std::move(that.handler);
+                priority = that.priority;
+                enabled.store(that.enabled.load(std::memory_order::relaxed), std::memory_order::relaxed);
+            }
+            HandlerHolder& operator=(HandlerHolder that) {
+                std::swap(handler, that.handler);
+                std::swap(priority, that.priority);
+                enabled.store(that.enabled.load(std::memory_order::relaxed), std::memory_order::relaxed);
+                return *this; 
+            }
             T handler;
-            volatile bool enabled = true;
+            int priority;
+            bool isEnabled() const { return enabled.load(std::memory_order::relaxed); }
+            void setEnabled(bool enable) { enabled.store(enable, std::memory_order::relaxed); }
+        private:
+            std::atomic<bool> enabled = true;
         };
+
+        template <typename T>
+        struct KeyHandlerHolder : HandlerHolder<T> {
+            KeyHandlerHolder(T handler, bool useScancode, int priority)
+                : HandlerHolder<T>{std::move(handler), priority}
+                , useScancode{useScancode}
+            {}
+            bool usesScancode() const { return useScancode; }
+        private:
+            bool useScancode;
+        };
+
+    public:
+        std::atomic<PerFrameGlobalInputData*> globalInputState;
+        std::atomic<double> lastResizeTime;
 
     private:
         GLFWwindow* window;
-        volatile bool finishedInputHandling = false;
-        volatile bool paused = false;
+        std::thread::id mainThreadId;
+        std::vector<int> keyStates;
+        PerFrameGlobalInputData* previousState;
+        std::vector<GLFWwindow*> secondaryWindows;
+        std::vector<InputManager*> secondaryInputManagers;
+        int defaultPriority, currentKeyboardPriority, currentMousePriority, previousKeyboardPriority, previousMousePriority;
 
     private:
-        std::vector<HandlerHolder<std::function<void(int, Modifier, Action)>>> keyHandlers;
+        std::vector<KeyHandlerHolder<std::function<void(int, Modifier, Action)>>> keyHandlers;
         std::vector<HandlerHolder<std::function<void(const char*, Modifier, Action)>>> utf8KeyHandlers;
         std::vector<HandlerHolder<std::function<void(MouseButton, Modifier, Action)>>> mouseButtonHandlers;
         std::vector<HandlerHolder<std::function<void(double, double)>>> mouseScrollHandlers;
         std::vector<HandlerHolder<std::function<void(CursorMovement)>>> cursorMovementHandlers;
         std::vector<HandlerHolder<std::function<void(double, double)>>> cursorPositionHandlers;
         std::vector<HandlerHolder<std::function<void(int, int)>>> windowResizeHandlers;
+        std::vector<HandlerHolder<std::function<void(int, int)>>> windowMoveHandlers;
+        std::vector<HandlerHolder<std::function<void(GLFWmonitor*, int)>>> monitorStateChangedHandlers;
+        std::vector<HandlerHolder<std::function<void(unsigned int)>>> textHandlers;
         std::vector<HandlerHolder<CursorHoldData>> cursorHoldHandlers;
 		std::vector<HandlerHolder<std::function<void(const std::vector<std::string>& paths)>>> pathDropHandlers;
-        std::vector<char> keyStates;
+        std::vector<HandlerHolder<std::function<void(bool)>>> windowFocusHandlers;
+        std::vector<HandlerHolder<std::function<void()>>> windowCloseHandlers;
+
+        moodycamel::ReaderWriterQueue<std::tuple<int, int, Modifier, Action>> keyEventQueue;
+        moodycamel::ReaderWriterQueue<std::tuple<MouseButton, Modifier, Action>> mouseButtonEventQueue;
+        moodycamel::ReaderWriterQueue<std::tuple<double, double>> mouseScrollEventQueue;
+        moodycamel::ReaderWriterQueue<std::tuple<CursorMovement>> cursorMovementEventQueue;
+        moodycamel::ReaderWriterQueue<std::tuple<double, double>> cursorPositionEventQueue;
+        moodycamel::ReaderWriterQueue<std::tuple<int, int>> windowResizeEventQueue;
+        moodycamel::ReaderWriterQueue<std::tuple<int, int>> windowMoveEventQueue;
+        moodycamel::ReaderWriterQueue<std::tuple<GLFWmonitor*, int>> monitorStateChangedEventQueue;
+        moodycamel::ReaderWriterQueue<std::tuple<unsigned int>> textEventQueue;
+        moodycamel::ReaderWriterQueue<std::function<void(void)>> cursorHoldEventCallbackQueue;
+        moodycamel::ReaderWriterQueue<std::tuple<std::vector<std::string>>> pathDropEventQueue;
+        moodycamel::ReaderWriterQueue<std::tuple<int>> windowFocusEventQueue;
+        moodycamel::ReaderWriterQueue<std::tuple<>> windowCloseEventQueue;
+
+    private:
+        moodycamel::ConcurrentQueue<std::packaged_task<void()>> tasks;
     };
 }
 #endif
